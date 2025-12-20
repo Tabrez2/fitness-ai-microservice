@@ -1,0 +1,45 @@
+spring:
+  ai:
+    openai:
+      # Use these exact property names for Spring AI 1.1.2
+      api-key: ${DEEP_KEY}
+      base-url: ${DEEP_URL}
+      chat:
+        options:
+          # OpenRouter model string
+          model: nex-agi/deepseek-v3.1-nex-n1:free
+          temperature: 0.7
+
+  data:
+    mongodb:
+      uri: mongodb://localhost:27017/airecommendationfitness
+      database: airecommendationfitness
+
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      max-poll-records: 1
+      group-id: activity-processor-group
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+        spring.json.value.default.type: tab.fitness.aiservice.entity.Activity
+        spring.json.use.type.headers: false
+    listener:
+      idle-between-polls: 5000
+      ack-mode: RECORD
+
+kafka:
+  topic:
+    name: activity-events
+
+eureka:
+  instance:
+    prefer-ip-address: true
+  client:
+    serviceUrl:
+      defaultZone: http://localhost:8761/eureka/
+
+server:
+  port: 8083
