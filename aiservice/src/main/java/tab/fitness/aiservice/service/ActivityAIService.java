@@ -28,54 +28,28 @@ public class ActivityAIService {
     }
 
     private Recommendation processAIResponse(Activity activity, String aiResponse) {
-        // 1. ADD THIS CHECK: If it's not JSON, don't try to parse it
-        if (aiResponse == null || !aiResponse.trim().startsWith("{")) {
-            log.warn("AI returned a non-JSON fallback message. Skipping structured parsing.");
-            return Recommendation.builder()
-                    .activityId(activity.getId())
-                    .userId(activity.getUserId())
-                    .type(activity.getType().toString())
-                    .recommendation(aiResponse != null ? aiResponse : "Analysis unavailable")
-                    .improvements(Collections.singletonList("Continue with your current routine"))
-                    .suggestions(Collections.singletonList("No specific suggestions at this time"))
-                    .safety(Collections.singletonList("Listen to your body"))
-                    .createdAt(LocalDateTime.now())
-                    .build();
-        }
         try {
             ObjectMapper mapper = new ObjectMapper();
-            JsonNode rootNode = mapper.readTree(aiResponse);
-            JsonNode textNode = rootNode.path("candidates")
-                    .get(0)
-                    .path("content")
-                    .get("parts")
-                    .get(0)
-                    .path("text");
 
-            String jsonContent = textNode.asText()
-                    .replaceAll("```json\\n","")
-                    .replaceAll("\\n```","")
-                    .trim();
+            // 1. Robust Cleaning of Markdown Backticks
+            String jsonContent = aiResponse.trim();
+            if (jsonContent.contains("```")) {
+                jsonContent = jsonContent.replaceAll("(?s)^.*?```json\\s*|```.*?$", "").trim();
+            }
 
-//            log.info("RESPONSE FROM CLEANED AI {} ", jsonContent);
+            JsonNode rootNode = mapper.readTree(jsonContent);
 
-            JsonNode analysisJson = mapper.readTree(jsonContent);
-            JsonNode analysisNode = analysisJson.path("analysis");
-            StringBuilder fullAnalysis = new StringBuilder();
-            addAnalysisSection(fullAnalysis, analysisNode, "overall", "Overall:");
-            addAnalysisSection(fullAnalysis, analysisNode, "pace", "Pace:");
-            addAnalysisSection(fullAnalysis, analysisNode, "heartRate", "Heart Rate:");
-            addAnalysisSection(fullAnalysis, analysisNode, "caloriesBurned", "Calories:");
-
-            List<String> improvements = extractImprovements(analysisJson.path("improvements"));
-            List<String> suggestions = extractSuggestions(analysisJson.path("suggestions"));
-            List<String> safety = extractSafetyGuidelines(analysisJson.path("safety"));
+            // 2. Use isolated helper methods to extract lists
+            // This prevents the "repeated text" bug by scoping the loop inside dedicated methods
+            List<String> improvements = extractImprovements(rootNode.path("improvements"));
+            List<String> suggestions = extractSuggestions(rootNode.path("suggestions"));
+            List<String> safety = extractSafetyGuidelines(rootNode.path("safety"));
 
             return Recommendation.builder()
                     .activityId(activity.getId())
                     .userId(activity.getUserId())
                     .type(activity.getType().toString())
-                    .recommendation(fullAnalysis.toString().trim())
+                    .recommendation(rootNode.path("analysis").path("overall").asText())
                     .improvements(improvements)
                     .suggestions(suggestions)
                     .safety(safety)
@@ -83,9 +57,53 @@ public class ActivityAIService {
                     .build();
 
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("CRITICAL PARSING ERROR: ", e);
             return createDefaultRecommendation(activity);
         }
+    }
+
+    private List<String> extractImprovements(JsonNode improvementsNode) {
+        List<String> improvements = new ArrayList<>();
+        if (improvementsNode != null && improvementsNode.isArray()) {
+            for (JsonNode node : improvementsNode) {
+                String area = node.path("area").asText().trim();
+                String detail = node.path("recommendation").asText().trim();
+                if (!area.isEmpty() && !detail.isEmpty()) {
+                    improvements.add(area + ": " + detail);
+                }
+            }
+        }
+        return improvements.isEmpty() ?
+                new ArrayList<>(Collections.singletonList("No specific improvements provided")) : improvements;
+    }
+
+    private List<String> extractSuggestions(JsonNode suggestionsNode) {
+        List<String> suggestions = new ArrayList<>();
+        if (suggestionsNode != null && suggestionsNode.isArray()) {
+            for (JsonNode node : suggestionsNode) {
+                String workout = node.path("workout").asText().trim();
+                String description = node.path("description").asText().trim();
+                if (!workout.isEmpty() && !description.isEmpty()) {
+                    suggestions.add(workout + ": " + description);
+                }
+            }
+        }
+        return suggestions.isEmpty() ?
+                new ArrayList<>(Collections.singletonList("No specific suggestions provided")) : suggestions;
+    }
+
+    private List<String> extractSafetyGuidelines(JsonNode safetyNode) {
+        List<String> safety = new ArrayList<>();
+        if (safetyNode != null && safetyNode.isArray()) {
+            for (JsonNode node : safetyNode) {
+                String text = node.asText().trim();
+                if (!text.isEmpty()) {
+                    safety.add(text);
+                }
+            }
+        }
+        return safety.isEmpty() ?
+                new ArrayList<>(Arrays.asList("Always warm up", "Stay hydrated", "Listen to your body")) : safety;
     }
 
     private Recommendation createDefaultRecommendation(Activity activity) {
@@ -96,62 +114,9 @@ public class ActivityAIService {
                 .recommendation("Unable to generate detailed analysis")
                 .improvements(Collections.singletonList("Continue with your current routine"))
                 .suggestions(Collections.singletonList("Consider consulting a fitness consultant"))
-                .safety(Arrays.asList(
-                        "Always warm up before exercise",
-                        "Stay hydrated",
-                        "Listen to your body"
-                ))
+                .safety(Arrays.asList("Always warm up before exercise", "Stay hydrated", "Listen to your body"))
                 .createdAt(LocalDateTime.now())
                 .build();
-    }
-
-    private List<String> extractSafetyGuidelines(JsonNode safetyNode) {
-        List<String> safety = new ArrayList<>();
-        if (safetyNode.isArray()) {
-            safetyNode.forEach(item -> safety.add(item.asText()));
-        }
-        return safety.isEmpty() ?
-                Collections.singletonList("Follow general safety guidelines") :
-                safety;
-    }
-
-    private List<String> extractSuggestions(JsonNode suggestionsNode) {
-        List<String> suggestions = new ArrayList<>();
-        if (suggestionsNode.isArray()) {
-            suggestionsNode.forEach(suggestion -> {
-                String workout = suggestion.path("workout").asText();
-                String description = suggestion.path("description").asText();
-                suggestions.add(String.format("%s: %s", workout, description));
-            });
-        }
-        return suggestions.isEmpty() ?
-                Collections.singletonList("No specific suggestions provided") :
-                suggestions;
-    }
-
-    private List<String> extractImprovements(JsonNode improvementsNode) {
-        List<String> improvements = new ArrayList<>();
-        if (improvementsNode.isArray()) {
-            improvementsNode.forEach(improvement -> {
-                String area = improvement.path("area").asText();
-                String detail = improvement.path("recommendation").asText();
-                improvements.add(String.format("%s: %s", area, detail));
-            });
-        }
-        return improvements.isEmpty() ?
-                Collections.singletonList("No specific improvements provided") :
-                improvements;
-
-    }
-
-    //    "overall": "This was an excellent"
-    // Overall: This was an excellent
-    private void addAnalysisSection(StringBuilder fullAnalysis, JsonNode analysisNode, String key, String prefix) {
-        if (!analysisNode.path(key).isMissingNode()){
-            fullAnalysis.append(prefix)
-                    .append(analysisNode.path(key).asText())
-                    .append("\n\n");
-        }
     }
 
     private String createPromptForActivity(Activity activity) {
@@ -165,36 +130,18 @@ public class ActivityAIService {
             "caloriesBurned": "Calories analysis here"
           },
           "improvements": [
-            {
-              "area": "Area name",
-              "recommendation": "Detailed recommendation"
-            }
+            { "area": "Area name", "recommendation": "Detailed recommendation" }
           ],
           "suggestions": [
-            {
-              "workout": "Workout name",
-              "description": "Detailed workout description"
-            }
+            { "workout": "Workout name", "description": "Detailed workout description" }
           ],
-          "safety": [
-            "Safety point 1",
-            "Safety point 2"
-          ]
+          "safety": [ "Safety point 1", "Safety point 2" ]
         }
 
-        Analyze this activity:
-        Activity Type: %s
-        Duration: %d minutes
-        Calories Burned: %d
-        Additional Metrics: %s
-        
-        Provide detailed analysis focusing on performance, improvements, next workout suggestions, and safety guidelines.
-        Ensure the response follows the EXACT JSON format shown above.
+        Activity: %s, Duration: %d min, Calories: %d.
+        Provide unique, high-quality fitness advice. Do not repeat the same advice across different categories.
         """,
-                activity.getType(),
-                activity.getDuration(),
-                activity.getCaloriesBurned(),
-                activity.getAdditionalMetrics()
+                activity.getType(), activity.getDuration(), activity.getCaloriesBurned()
         );
     }
 }

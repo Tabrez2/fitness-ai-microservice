@@ -23,36 +23,44 @@ public class ActivityMessageListener {
 
     @RetryableTopic(
             attempts = "4",
-            backoff = @Backoff(delay = 35000, multiplier = 2.0), // Wait 35s on first fail, then 70s
-            include = {RuntimeException.class} // Catch the "Failed to generate content" error
+            backoff = @Backoff(delay = 35000, multiplier = 2.0),
+            include = {RuntimeException.class}
     )
     @KafkaListener(topics = "${kafka.topic.name}", groupId = "activity-processor-group")
     public void processActivity(Activity activity) {
-        log.info("Processing Activity for User: {}. Activity ID: {}", activity.getUserId(), activity.getId());
+        log.info("Received Activity for User: {}. Activity ID: {}", activity.getUserId(), activity.getId());
+
+        // 1. IDEMPOTENCY CHECK:
+        // Check if we already processed this activity. If yes, stop here.
+        if (recommendationRepository.findByActivityId(activity.getId()).isPresent()) {
+            log.warn("Recommendation already exists for Activity ID: {}. Skipping to prevent duplicates.", activity.getId());
+            return;
+        }
 
         try {
-            // CRITICAL: Force a small delay BEFORE calling AI.
-            // This prevents the "burst" that causes the 429 error.
+            // Throttling to prevent 429 errors
             Thread.sleep(4000);
 
             Recommendation recommendation = activityAIService.generateRecommendation(activity);
-            recommendationRepository.save(recommendation);
 
-            log.info("Successfully saved recommendation for activity: {}", activity.getId());
+            // Double-check right before saving (optional but safer)
+            if (recommendationRepository.findByActivityId(activity.getId()).isEmpty()) {
+                recommendationRepository.save(recommendation);
+                log.info("Successfully saved recommendation for activity: {}", activity.getId());
+            }
+
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.error("Thread interrupted during throttling sleep");
         } catch (Exception e) {
-            log.warn("AI Service failed for activity {}. Moving to retry topic. Error: {}",
-                    activity.getId(), e.getMessage());
-            // Throw exception to trigger @RetryableTopic
-            throw e;
+            log.warn("AI Service failed for activity {}. Error: {}", activity.getId(), e.getMessage());
+            throw e; // Triggers Kafka Retry
         }
     }
 
     @DltHandler
     public void handleDlt(Activity activity, @Header(KafkaHeaders.RECEIVED_TOPIC) String topic) {
-        log.error("Event from topic {} failed after all retries. User: {}", topic, activity.getUserId());
-        // Here you could save a "default" recommendation so the user doesn't see a blank screen
+        log.error("Activity {} failed after retries. Topic: {}", activity.getId(), topic);
+        // Optional: Save a default fallback here so the UI isn't stuck forever
     }
 }

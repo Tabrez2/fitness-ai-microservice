@@ -39,36 +39,38 @@ const ActivityDetail = () => {
                 </CardContent>
             </Card>
 
-            {recommendation && (
-                <Card>
-                    <CardContent>
-                        <Typography variant="h5" gutterBottom>AI Recommendation</Typography>
-                        <Typography variant="h6">Analysis</Typography>
-                        <Typography paragraph>{activity.recommendation}</Typography>
-                        
-                        <Divider sx={{ my: 2 }} />
-                        
-                        <Typography variant="h6">Improvements</Typography>
-                        {activity?.improvements?.map((improvement, index) => (
-                            <Typography key={index} paragraph>• {activity.improvements}</Typography>
-                        ))}
-                        
-                        <Divider sx={{ my: 2 }} />
-                        
-                        <Typography variant="h6">Suggestions</Typography>
-                        {activity?.suggestions?.map((suggestion, index) => (
-                            <Typography key={index} paragraph>• {suggestion}</Typography>
-                        ))}
-                        
-                        <Divider sx={{ my: 2 }} />
-                        
-                        <Typography variant="h6">Safety Guidelines</Typography>
-                        {activity?.safety?.map((safety, index) => (
-                            <Typography key={index} paragraph>• {safety}</Typography>
-                        ))}
-                    </CardContent>
-                </Card>
-            )}
+{recommendation && (
+  <Card>
+    <CardContent>
+      <Typography variant="h5" gutterBottom>AI Recommendation</Typography>
+
+      <Typography variant="h6">Analysis</Typography>
+      <Typography paragraph>{activity.recommendation}</Typography>
+
+      <Divider sx={{ my: 2 }} />
+
+      <Typography variant="h6">Improvements</Typography>
+      {activity?.improvements?.map((improvement, index) => (
+        <Typography key={index} paragraph>• {improvement}</Typography>
+      ))}
+
+      <Divider sx={{ my: 2 }} />
+
+      <Typography variant="h6">Suggestions</Typography>
+      {activity?.suggestions?.map((suggestion, index) => (
+        <Typography key={index} paragraph>• {suggestion}</Typography>
+      ))}
+
+      <Divider sx={{ my: 2 }} />
+
+      <Typography variant="h6">Safety Guidelines</Typography>
+      {activity?.safety?.map((safety, index) => (
+        <Typography key={index} paragraph>• {safety}</Typography>
+      ))}
+    </CardContent>
+  </Card>
+)}
+
         </Box>
   )
 }
